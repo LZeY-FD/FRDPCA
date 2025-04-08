@@ -52,7 +52,8 @@ data_list = ['clf_num/pol.csv','clf_num/default-of-credit-card-clients.csv','clf
           'reg_cat/Mercedes_Benz_Greener_Manufacturing.csv'
          ]
 
-kappa = 2
+kappa = 1
 rho = 0.2
-df_result = run_experiment_benchmark(data_list, T=10, k_ratio=kappa, r_ratio=rho, r_max=20)
+df_result = run_experiment_benchmark(data_list, T=100, k_ratio=kappa, r_ratio=rho, r_max=20)
 main_plot(df_result, kappa=kappa,rho=rho)
+
