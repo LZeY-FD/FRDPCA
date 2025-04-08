@@ -75,6 +75,81 @@ def distributed_pca_power(data_machines, r,T=1):
         Ug = eigvecs[:, sorted_indices[:r]]
     return Ug
 
+def estimate_sigma_squared(Ug, data_machines):
+    """
+    Estimate the noise variance sigma^2 using the provided formula.
+    
+    Parameters:
+    Ug : numpy.ndarray
+        Current estimate of the principal components (p x r matrix)
+    data_machines : list of numpy.ndarray
+        List of data matrices from each machine
+        
+    Returns:
+    float
+        Estimated sigma^2 value
+    """
+    K = len(data_machines)
+    p = data_machines[0].shape[1]  # Number of features
+    r = Ug.shape[1]
+    
+    # Compute U_perp: I - Ug @ Ug.T
+    PU_perp = np.eye(p) - Ug @ Ug.T
+    
+    # Compute sample covariance matrices for each machine
+    cov_matrices = [np.cov(X.T) for X in data_machines]
+    
+    # Calculate the trace terms for each machine
+    trace_terms = [np.trace(cov @ PU_perp) for cov in cov_matrices]
+    
+    # Average the trace terms and normalize
+    sigma_sq = np.sum(trace_terms) / (K * (p - r))
+    
+    return sigma_sq
+
+def distributed_pca_power_sigma(data_machines, r, T=1):
+    """
+    Distributed PCA using power method with noise variance estimation.
+    
+    Parameters:
+    data_machines : list of numpy.ndarray
+        List of data matrices from each machine
+    r : int
+        Number of principal components to extract
+    T : int, optional
+        Number of iterations (default: 1)
+        
+    Returns:
+    numpy.ndarray
+        Estimated principal components (p x r matrix)
+    """
+    K = len(data_machines)
+    p = data_machines[0].shape[1]  # Number of features
+    
+    # Compute sample covariance matrices for each machine
+    cov_matrices = [np.cov(X.T) for X in data_machines]
+    
+    # Initial PCA estimate
+    Ug = distributed_pca(data_machines, r)
+    
+    for t in range(T):
+        # Estimate sigma^2 using current Ug
+        sigma_sq = estimate_sigma_squared(Ug, data_machines)
+        
+        # Compute G matrices with noise correction
+        G_matrices = [cov @ Ug - sigma_sq * Ug for cov in cov_matrices]
+        
+        # Sum all the G matrices and perform PCA
+        G_total = np.sum(G_matrices, axis=0) / K
+        eigvals, eigvecs = np.linalg.eigh(G_total @ G_total.T)
+    
+        # Sort eigenvalues and select top r eigenvectors
+        sorted_indices = np.argsort(eigvals)[::-1]
+        Ug = eigvecs[:, sorted_indices[:r]]
+        
+    return Ug
+
+
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -100,7 +175,7 @@ def run_experiment(X, N, K, r):
         
         Up = pooled_pca(data_machines, r)
         Ud = distributed_pca(data_machines, r)
-        Ug = distributed_pca_power(data_machines, r, T=1)
+        Ug = distributed_pca_power_sigma(data_machines, r, T=2)
 
         train_errors_up.append(compute_ar(Up, X_train.T))
         test_errors_up.append(compute_ar(Up, X_test.T))
