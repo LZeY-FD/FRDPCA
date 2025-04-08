@@ -1,8 +1,8 @@
 from algorithm import *
 
-#l = [3.75,3.5,3.25] #strong
+l = [3.75,3.5,3.25] #strong
 #l = [3.25,3,2.75] #moderate
-l = [2.75,2.5,2.25] #weak
+#l = [2.75,2.5,2.25] #weak
 
 r = len(l)
 
@@ -26,7 +26,7 @@ for n in n_list:
     error_ud_list = []
     error_ug_list = []
 
-    for _ in range(10):
+    for _ in range(100):
         error_up, error_ud,error_ug = pca_comparison(l, n, K, p)
         error_up_list.append(error_up)
         error_ud_list.append(error_ud)
@@ -61,7 +61,7 @@ sns.scatterplot(x=n_list, y=power_PCA_num, label='2RD-PCA', color='tab:green', s
 
 ax.set_xlabel('local sample size n', fontsize=12)
 #ax.set_ylabel('PCA/Rate Value', fontsize=12)
-ax.set_title(f'Weak spike (p={p})', fontsize=14)
+ax.set_title(f'Strong spike (p={p})', fontsize=14)
 
 
 plt.legend(fontsize=10, title_fontsize=12)
@@ -69,4 +69,4 @@ plt.legend(fontsize=10, title_fontsize=12)
 plt.ylim([0, 0.18])
 
 plt.tight_layout()
-plt.savefig(f'weak (p={p}).png')
+plt.savefig(f'strong (p={p}).png')
