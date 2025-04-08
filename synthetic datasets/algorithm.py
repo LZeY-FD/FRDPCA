@@ -39,7 +39,7 @@ def pooled_pca(data_machines, r):
     
     return Up
 
-def distributed_pca(data_machines, r): #with eigenvalue information
+def distributed_pca(data_machines, r):
     """
     Perform distributed PCA by calculating the leading eigenvectors for each machine and combining them.
     """
@@ -47,18 +47,19 @@ def distributed_pca(data_machines, r): #with eigenvalue information
     
     # Compute sample covariance matrices for each machine
     cov_matrices = [np.cov(X.T) for X in data_machines]
-    K = len(cov_matrices)  # 计算协方差矩阵的数量
-    U_combined = np.zeros_like(cov_matrices[0])  # 初始化 U_combined 为适当大小的零矩阵
-
+    
+    # Compute leading r eigenvectors for each machine
+    Uk_list = []
     for Sigma_k in cov_matrices:
         eigvals, eigvecs = np.linalg.eigh(Sigma_k)
-        sorted_indices = np.argsort(eigvals)[::-1]  # 按降序排列特征值的索引
-        Uk = eigvecs[:, sorted_indices[:r]]  # 取前 r 个特征向量
-        lam = eigvals[sorted_indices[:r]]   # 对应的前 r 个特征值，已经排序过了
-        Lam = np.diag(lam)                  # 构造对角矩阵
+        sorted_indices = np.argsort(eigvals)[::-1]
+        Uk = eigvecs[:, sorted_indices[:r]]
+        Uk_list.append(Uk)
     
-        term = Uk @ (Lam @ Uk.T)            # 计算加权后的贡献矩阵
-        U_combined += term
+    # Sum of Uk * Uk^T and then average by K
+    U_combined = np.zeros((Sigma_k.shape[0], Sigma_k.shape[0]))  # Initialize for sum
+    for Uk in Uk_list:
+        U_combined += Uk @ Uk.T
     
     # Average the combined matrix
     U_combined /= K
@@ -89,27 +90,78 @@ def distributed_pca_power(data_machines, r,T=1):
         Ug = eigvecs[:, sorted_indices[:r]]
     return Ug
 
-def distributed_pca_power_sigma(data_machines, r,T=1,sigma=None):
+def estimate_sigma_squared(Ug, data_machines):
+    """
+    Estimate the noise variance sigma^2 using the provided formula.
+    
+    Parameters:
+    Ug : numpy.ndarray
+        Current estimate of the principal components (p x r matrix)
+    data_machines : list of numpy.ndarray
+        List of data matrices from each machine
+        
+    Returns:
+    float
+        Estimated sigma^2 value
+    """
     K = len(data_machines)
+    p = data_machines[0].shape[1]  # Number of features
+    r = Ug.shape[1]
+    
+    # Compute U_perp: I - Ug @ Ug.T
+    PU_perp = np.eye(p) - Ug @ Ug.T
     
     # Compute sample covariance matrices for each machine
     cov_matrices = [np.cov(X.T) for X in data_machines]
+    
+    # Calculate the trace terms for each machine
+    trace_terms = [np.trace(cov @ PU_perp) for cov in cov_matrices]
+    
+    # Average the trace terms and normalize
+    sigma_sq = np.sum(trace_terms) / (K * (p - r))
+    
+    return sigma_sq
+
+def distributed_pca_power_sigma(data_machines, r, T=1):
+    """
+    Distributed PCA using power method with noise variance estimation.
+    
+    Parameters:
+    data_machines : list of numpy.ndarray
+        List of data matrices from each machine
+    r : int
+        Number of principal components to extract
+    T : int, optional
+        Number of iterations (default: 1)
+        
+    Returns:
+    numpy.ndarray
+        Estimated principal components (p x r matrix)
+    """
+    K = len(data_machines)
+    p = data_machines[0].shape[1]  # Number of features
+    
+    # Compute sample covariance matrices for each machine
+    cov_matrices = [np.cov(X.T) for X in data_machines]
+    
+    # Initial PCA estimate
     Ug = distributed_pca(data_machines, r)
-    p = Ug.shape[0]
+    
     for t in range(T):
-        G_matrices = [cov@Ug for cov in cov_matrices]
-        if sigma is None:
-            variance_total = np.sum([np.trace(cov) for cov in cov_matrices])
-            variance_spike = np.sum([np.trace(Ug.T@cov@Ug) for cov in cov_matrices])
-            sigma = np.sqrt((variance_total-variance_spike)/(K*(p-r)))
-            print(sigma)
-        # Sum all the covariance matrices and perform PCA
-        G_total = np.sum(G_matrices-sigma*Ug, axis=0)/K
-        eigvals, eigvecs = np.linalg.eigh(G_total@G_total.T)
+        # Estimate sigma^2 using current Ug
+        sigma_sq = estimate_sigma_squared(Ug, data_machines)
+        
+        # Compute G matrices with noise correction
+        G_matrices = [cov @ Ug - sigma_sq * Ug for cov in cov_matrices]
+        
+        # Sum all the G matrices and perform PCA
+        G_total = np.sum(G_matrices, axis=0) / K
+        eigvals, eigvecs = np.linalg.eigh(G_total @ G_total.T)
     
         # Sort eigenvalues and select top r eigenvectors
         sorted_indices = np.argsort(eigvals)[::-1]
         Ug = eigvecs[:, sorted_indices[:r]]
+        
     return Ug
 
 
@@ -151,15 +203,12 @@ def pca_comparison(l, n, K, p,T=1):
     Ud = distributed_pca(data_machines, r)
 
     #power PCA
-    Ug = distributed_pca_power(data_machines, r,T=T)
-
-    Ug_sigma = distributed_pca_power_sigma(data_machines, r,T=T,sigma=None)
+    Ug = distributed_pca_power_sigma(data_machines, r,T=T)
     
     # Compute Frobenius errors
     error_up = frobenius_error(Up, U_true)
     error_ud = frobenius_error(Ud, U_true)
     error_ug = frobenius_error(Ug, U_true)
-    error_ug_sigma = frobenius_error(Ug_sigma, U_true)
 
-    return error_up, error_ud, error_ug, error_ug_sigma
-
+    
+    return error_up, error_ud, error_ug
